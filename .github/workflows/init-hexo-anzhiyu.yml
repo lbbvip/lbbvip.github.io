@@ -1,0 +1,119 @@
+name: Initialize Hexo with Anzhiyu Theme
+
+# 触发条件：手动触发
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  init-hexo-anzhiyu:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. 检出当前仓库代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ====================== 核心：检查是否已初始化 ======================
+      - name: Check if Hexo with Anzhiyu is initialized
+        id: check_init
+        run: |
+          if [ -f "_config.anzhiyu.yml" ]; then
+            echo "✅ 检测到 _config.anzhiyu.yml 文件，跳过初始化流程"
+            echo "initialized=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ 未检测到 _config.anzhiyu.yml 文件，执行初始化流程"
+            echo "initialized=false" >> $GITHUB_OUTPUT
+          fi
+
+      # 2. 设置Node.js环境
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      # 3. 全局安装Hexo CLI
+      - name: Install Hexo CLI
+        run: npm install -g hexo-cli
+
+      # 4. 初始化Hexo
+      - name: Hexo init
+        if: steps.check_init.outputs.initialized == 'false'
+        run: |
+          mkdir -p temp
+          cd temp
+          hexo init . --no-install
+          cd ..
+          cp -r temp/. .
+          rm -rf temp
+
+      # 5. 克隆Anzhiyu主题
+      - name: Clone Anzhiyu theme
+        if: steps.check_init.outputs.initialized == 'false'
+        run: |
+          git clone -b main https://github.com/anzhiyu-c/hexo-theme-anzhiyu.git themes/anzhiyu
+          rm -rf themes/anzhiyu/.git
+
+      # 6. 配置Hexo使用Anzhiyu主题
+      - name: Configure Hexo to use Anzhiyu theme
+        if: steps.check_init.outputs.initialized == 'false'
+        run: |
+          sed -i 's/theme: landscape/theme: anzhiyu/g' _config.yml
+          cp themes/anzhiyu/_config.yml _config.anzhiyu.yml
+          sed -i '/^[[:space:]]*permalink: :year\/:month\/:day\/:title\//,/^[[:space:]]*permalink_defaults:/c\# permalink: :year/:month/:day/:title/\n# permalink_defaults:\npermalink: posts/:abbrlink/\nabbrlink:\n  alg: crc32 # support crc16(default) and crc32\n  rep: dec   # support dec(default) and hex' _config.yml
+
+      # ====================== 关键修复：始终安装依赖（解决依赖问题） ======================
+      - name: Install dependencies (Hexo + Anzhiyu theme)
+        run: |
+          # 安装Hexo核心依赖（读取package.json）
+          npm install
+          # 安装Anzhiyu主题必需的依赖（确保即使已初始化也能补全依赖）
+          npm install --save \
+            hexo-renderer-pug \
+            hexo-renderer-stylus \
+            hexo-component-inferno \
+            hexo-generator-searchdb \
+            hexo-generator-feed \
+            hexo-generator-sitemap \
+            hexo-abbrlink
+
+      # 7. 构建Hexo静态文件
+      - name: Build Hexo Blog
+        run: |
+          hexo clean
+          hexo generate
+
+      # 8. 配置Git用户信息
+      - name: Configure Git
+        run: |
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+
+      # 9. 提交并推送源码到当前仓库
+      - name: Commit and push changes
+        run: |
+          git add .
+          git commit -m "Initialize Hexo with Anzhiyu theme" || echo "No changes to commit"
+          git push origin ${{ github.ref }}
+
+      # 10. 推送静态文件到指定仓库
+      - name: Deploy static files to target repository
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          # 【必改】目标仓库：用户名/仓库名（如 yourname/yourname.github.io）
+          repo: njuvtk/auto-blog
+          # 【必改】部署分支（main 或 gh-pages）
+          branch: gh-pages
+          # 静态文件目录
+          publish_dir: ./public
+          # GitHub Token
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # 提交信息
+          commit_message: 'Deploy static files: ${{ github.run_id }}'
+          # 部署者信息
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
