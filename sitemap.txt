@@ -1,2 +1,2 @@
-http://example.com/posts/1243066710/
-http://example.com/
+https://lbbvip.github.io/posts/1243066710/
+https://lbbvip.github.io/
